@@ -1,0 +1,43 @@
+{
+  "name": "@cpq/api",
+  "version": "1.0.0",
+  "description": "Backend API para o CPQ/DMS",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsup src/server.ts --format cjs --clean",
+    "start": "node dist/server.js",
+    "seed:demo": "tsx prisma/seed-demo.ts"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "latest",
+    "@prisma/client": "latest",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-async-errors": "^3.1.1",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "multer": "^2.1.1",
+    "pg": "^8.13.1",
+    "pino": "^9.0.0",
+    "pino-pretty": "^11.0.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@prisma/config": "latest",
+    "@types/bcryptjs": "^3.0.0",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/multer": "^2.1.0",
+    "@types/pg": "^8.11.10",
+    "prisma": "latest",
+    "tsup": "^8.0.2",
+    "tsx": "^4.7.2"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

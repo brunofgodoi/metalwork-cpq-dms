@@ -1,0 +1,305 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// -----------------------------------------------------------------------------
+// Enums
+// -----------------------------------------------------------------------------
+
+enum Role {
+  ADMIN
+  ESTIMATOR
+  VIEWER
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  APPROVED
+  REJECTED
+  CANCELED
+  SUPERSEDED
+  PENDING_APPROVAL
+}
+
+// -----------------------------------------------------------------------------
+// Models
+// -----------------------------------------------------------------------------
+
+model User {
+  id                      String  @id @default(uuid())
+  name                    String
+  email                   String  @unique
+  password                String
+  role                    Role    @default(ESTIMATOR)
+  isActive                Boolean @default(true) // Soft Delete
+  changePasswordNextLogin Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  quotes             Quote[]
+  requestedApprovals ApprovalRequest[] @relation("RequestedApprovalRequests")
+  decidedApprovals   ApprovalRequest[] @relation("DecidedApprovalRequests")
+  auditLogs          QuoteAuditLog[]
+
+  @@index([isActive])
+  @@map("users")
+}
+
+model Client {
+  id       String  @id @default(uuid())
+  name     String
+  document String? @unique // CPF or CNPJ
+  address  String?
+  isActive Boolean @default(true) // Soft Delete
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  contacts ClientContact[]
+  quotes   Quote[]
+
+  @@index([isActive])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([document(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([address(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("clients")
+}
+
+model ClientContact {
+  id       String  @id @default(uuid())
+  clientId String
+  name     String
+  phone    String?
+  email    String?
+  isActive Boolean @default(true) // Soft Delete
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client Client  @relation(fields: [clientId], references: [id])
+  quotes Quote[]
+
+  @@index([clientId])
+  @@index([isActive])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([phone(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([email(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("client_contacts")
+}
+
+model Category {
+  id            String     @id @default(uuid())
+  name          String     @unique // ex: Corte Laser, Usinagem, Dobra
+  isActive      Boolean    @default(true) // Soft Delete
+  parentId      String?    @map("parent_id")
+  parent        Category?  @relation("CategoryToSubcategory", fields: [parentId], references: [id])
+  subcategories Category[] @relation("CategoryToSubcategory")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  quotes           Quote[]
+  standardDrawings StandardDrawing[]
+
+  @@index([isActive])
+  @@index([parentId])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("categories")
+}
+
+model Quote {
+  id              String  @id @default(uuid())
+  quoteNumber     Int     @default(autoincrement()) @map("quote_number")
+  revision        String  @default("A")
+  isLatest        Boolean @default(true) @map("is_latest")
+  clientId        String
+  contactId       String?
+  categoryId      String?
+  createdById     String
+  descriptiveText String  @db.Text
+  networkFilePath String? // e.g. Z:\Engenharia\projeto.dwg
+  cadFilePath     String? @map("cad_file_path")
+  thumbnailUrl    String? @map("thumbnail_url")
+
+  // CPQ Fields — price audit trail: estimatedPrice → price (sent) → contractedPrice (approved)
+  estimatedPrice  Decimal?    @db.Decimal(10, 2) // Rough estimate at creation
+  totalCost       Decimal?    @db.Decimal(10, 2) // Soma dos custos dos itens (unitCost * qty)
+  snapshot        Json?       @map("snapshot")
+  price           Decimal?    @db.Decimal(10, 2) // Formal quoted price sent to client
+  contractedPrice Decimal?    @db.Decimal(10, 2) // Final negotiated price at approval
+  discountPercent Decimal?    @db.Decimal(5, 2) // Global discount %
+  discountFixed   Decimal?    @db.Decimal(10, 2) // Global discount fixed amount
+  estimatedHours  Int?
+  deliveryDate    DateTime? // Expected delivery date communicated to client
+  validUntil      DateTime? // Expected expiration date of the quote
+  description     String?     @db.Text // Generic description (optional)
+  notes           String?     @db.Text // Free observations field
+  status          QuoteStatus @default(DRAFT)
+  rejectionReason String?     @db.Text
+  wasProduced     Boolean?
+
+  isActive Boolean @default(true) // Soft Delete
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  client           Client            @relation(fields: [clientId], references: [id])
+  contact          ClientContact?    @relation(fields: [contactId], references: [id])
+  category         Category?         @relation(fields: [categoryId], references: [id])
+  createdBy        User              @relation(fields: [createdById], references: [id])
+  items            QuoteItem[]
+  approvalRequests ApprovalRequest[]
+  auditLogs        QuoteAuditLog[]
+
+  @@index([clientId])
+  @@index([contactId])
+  @@index([categoryId])
+  @@index([createdById])
+  @@index([isActive])
+  @@index([descriptiveText(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([networkFilePath(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("quotes")
+}
+
+model QuoteItem {
+  id              String   @id @default(uuid())
+  quoteId         String   @map("quote_id")
+  quote           Quote    @relation(fields: [quoteId], references: [id])
+  project         String // Nome do projeto/item
+  description     String   @db.Text // Descrição detalhada (usada no semantic search)
+  quantity        Int      @default(1)
+  unitCost        Decimal  @default(0) @db.Decimal(10, 2) // Custo de produção (interno)
+  unitPrice       Decimal  @default(0) @db.Decimal(10, 2) // Preço de tabela (nunca sobrescrito)
+  discountPercent Decimal  @default(0) @db.Decimal(5, 2) // 0-100, desconto sobre unitPrice
+  process         String? // Usinagem, Laser, Dobra, Corte
+  material        String?
+  estimatedHours  Decimal? @db.Decimal(10, 2)
+  drawingId       String?  @map("drawing_id") // FK para StandardDrawing
+  drawingVersion  Int?     @map("drawing_version") // Snapshot da versão usada
+  drawingRef      String?  @map("drawing_ref") // Path do arquivo CAD
+  thumbnailUrl    String?  @map("thumbnail_url")
+  details         Json? // Specs técnicas, dimensões, atributos
+  notes           String?  @db.Text
+  sortOrder       Int      @default(0) // Ordenação dos itens
+  isActive        Boolean  @default(true) // Soft Delete
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([quoteId])
+  @@index([drawingId, drawingVersion])
+  @@index([project(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([description(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("quote_items")
+}
+
+model SystemConfig {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("system_configs")
+}
+
+model ApprovalRequest {
+  id             String   @id @default(uuid())
+  quoteId        String   @map("quote_id")
+  quote          Quote    @relation(fields: [quoteId], references: [id])
+  requestedById  String   @map("requested_by_id")
+  requestedBy    User     @relation(name: "RequestedApprovalRequests", fields: [requestedById], references: [id])
+  status         String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  approverId     String?  @map("approver_id")
+  approver       User?    @relation(name: "DecidedApprovalRequests", fields: [approverId], references: [id])
+  justification  String   @db.Text
+  marginProposed Decimal  @db.Decimal(5, 2)
+  marginMin      Decimal  @db.Decimal(5, 2)
+  comments       String?  @db.Text
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([quoteId])
+  @@index([requestedById])
+  @@map("approval_requests")
+}
+
+model StandardDrawing {
+  id          String   @id @default(uuid())
+  code        String   @unique // ex: "REB-001", "ROD-015"
+  name        String
+  description String?  @db.Text
+  type        String   @default("PRODUCT") // "HELPER" | "PRODUCT"
+  categoryId  String
+  category    Category @relation(fields: [categoryId], references: [id])
+  basePrice   Decimal? @db.Decimal(10, 2) // Preço sugestivo (para PRODUCT)
+  specs       Json? // Dimensões, materiais, atributos
+  thumbnail   String? // Preview image
+  isActive    Boolean  @default(true)
+
+  versions  StandardDrawingVersion[]
+  createdAt DateTime                 @default(now())
+  updatedAt DateTime                 @updatedAt
+
+  @@index([categoryId])
+  @@index([type])
+  @@index([code(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([description(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("standard_drawings")
+}
+
+model StandardDrawingVersion {
+  id          String          @id @default(uuid())
+  drawingId   String
+  drawing     StandardDrawing @relation(fields: [drawingId], references: [id])
+  version     Int
+  filePath    String // Path do arquivo CAD/PDF
+  docFilePath String? // Path do documento do projeto
+  changelog   String?         @db.Text // O que mudou nesta versão
+  metadata    Json? // Snapshot completo dos dados na época
+  createdBy   String
+  createdAt   DateTime        @default(now())
+
+  @@unique([drawingId, version])
+  @@map("standard_drawing_versions")
+}
+
+model CompanyConfig {
+  id          String   @id @default("default")
+  companyName String
+  document    String // CNPJ
+  address     String?
+  phone       String?
+  email       String?
+  website     String?
+  logo        String? // Path do arquivo de logo
+  footer      String?  @db.Text // Condições comerciais, validade, pagamento
+  updatedById String? // Who last modified this config
+  updatedAt   DateTime @updatedAt
+
+  @@map("company_configs")
+}
+
+model QuoteAuditLog {
+  id          String   @id @default(uuid())
+  quoteId     String   @map("quote_id")
+  quote       Quote    @relation(fields: [quoteId], references: [id])
+  changedById String   @map("changed_by_id")
+  changedBy   User     @relation(fields: [changedById], references: [id])
+  action      String // CREATE, STATUS_CHANGE, PRICE_CHANGE, ITEM_ADD, ITEM_REMOVE, ITEM_UPDATE, DRAWING_UPLOAD, REVISION
+  oldValue    Json?    @map("old_value")
+  newValue    Json?    @map("new_value")
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([quoteId])
+  @@index([changedById])
+  @@map("quote_audit_logs")
+}

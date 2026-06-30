@@ -1,0 +1,1 @@
+ALTER TABLE "quotes" ADD COLUMN IF NOT EXISTS "totalCost" DECIMAL(10,2);
