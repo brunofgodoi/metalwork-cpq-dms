@@ -1,0 +1,32 @@
+{
+  "name": "cpq-dms",
+  "version": "1.0.0",
+  "description": "Sistema de Orçamentos e Documentação (CPQ/DMS) - Indústria Metalúrgica",
+  "private": true,
+  "scripts": {
+    "api": "pnpm --filter @cpq/api",
+    "api:dev": "pnpm --filter @cpq/api run dev",
+    "api:build": "pnpm --filter @cpq/api run build",
+    "api:start": "pnpm --filter @cpq/api run start",
+    "web": "pnpm --filter @cpq/web",
+    "web:dev": "pnpm --filter @cpq/web run dev",
+    "dev": "pnpm -r --parallel run dev",
+    "db:seed:demo": "pnpm --filter @cpq/api exec tsx prisma/seed-demo.ts",
+    "lint": "eslint . --ext .ts,.tsx",
+    "format": "prettier --write .",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.41",
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "eslint": "^8.57.1",
+    "eslint-config-prettier": "^9.1.2",
+    "eslint-plugin-prettier": "^5.5.5",
+    "prettier": "^3.8.3",
+    "typescript": "^5.9.3"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
